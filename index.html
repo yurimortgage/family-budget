@@ -303,25 +303,16 @@ function renderFunds() {
 }
 
 function histIcon(h) {
+  if (h.type === "inc" && h.top) { const f = fundBy(h.fund); return { e: f ? f.icon : "🎯", c: "#14416b" }; }
   if (h.type === "inc") return { e: h.noTax ? "💼" : "💵", c: "#14416b" };
   if (h.type === "tr") return { e: "⇄", c: "#7F8C8D" };
   const f = fundBy(h.fund); return { e: f ? f.icon : "•", c: f ? f.color : "#7F8C8D" };
 }
-function histItem(h) {
-  const ic = histIcon(h);
-  let title, sub, sum;
-  if (h.type === "inc") { title = h.noTax ? "Зарплата" : "Комиссия / доход"; sub = String(h.comment || "").replace(/^(зп|комиссия)\s*/i, ""); sum = `<span class="sum plus">${money(h.amount, true)}</span>`; }
-  else if (h.type === "exp") { title = h.comment || h.fund; sub = h.fund; sum = `<span class="sum minus">${money(-h.amount)}</span>`; }
-  else if (h.type === "tr") { title = "Перевод"; sub = `${h.from} → ${h.to}`; sum = `<span class="sum">${money(h.amount)}</span>`; }
-  else { title = "Запись"; sub = ""; sum = ""; }
-  return `<button class="hi" data-op="${esc(h.op)}">
-    <span class="ic" style="background:${soft(ic.c, .14)}">${ic.e}</span>
-    <span><b>${esc(title)}</b><small>${esc([sub, h.who, h.when].filter(Boolean).join(" · "))}</small></span>${sum}</button>`;
-}
-
+const cleanC = c => String(c || "").replace(/^(зп|комиссия|пополнение)\s*/i, "");
 function rowItem(h) {
   let title, sub, sum;
-  if (h.type === "inc") { title = String(h.comment || "").replace(/^(зп|комиссия)\s*/i, "") || (h.noTax ? "Зарплата" : "Доход"); sub = h.noTax ? "зарплата" : "доход"; sum = `<span class="s plus">${money(h.amount, true)}</span>`; }
+  if (h.type === "inc" && h.top) { title = cleanC(h.comment) || "Пополнение"; sub = h.fund; sum = `<span class="s plus">${money(h.amount, true)}</span>`; }
+  else if (h.type === "inc") { title = cleanC(h.comment) || (h.noTax ? "Зарплата" : "Доход"); sub = h.noTax ? "зарплата" : "доход"; sum = `<span class="s plus">${money(h.amount, true)}</span>`; }
   else if (h.type === "exp") { title = h.comment || h.fund; sub = h.comment ? h.fund : ""; sum = `<span class="s minus">${money(-h.amount)}</span>`; }
   else if (h.type === "tr") { title = `${h.from} → ${h.to}`; sub = "перевод"; sum = `<span class="s">${money(h.amount)}</span>`; }
   else { title = "Запись"; sub = ""; sum = ""; }
@@ -389,7 +380,8 @@ function renderReport() {
 }
 
 // ---------- Листы: добавить, фонд, запись ----------
-const F = { mode: "exp", fund: null, noTax: true, from: null, to: null };
+const F = { mode: "exp", fund: null, noTax: true, top: false, from: null, to: null };
+const canTop = () => ((S.data && S.data.caps) || []).indexOf("top") >= 0;
 function openSheet(html) {
   const s = $("#sheet");
   s.innerHTML = `<div class="sheet-bg" data-close="1"><div class="sheet"><div class="grab"></div>
@@ -407,6 +399,10 @@ function goBack() {
   if (S.tab !== "home") { S.tab = "home"; render(); }
 }
 
+function incSeg() {
+  const top = F.top && canTop();
+  return `<div class="seg ${canTop() ? "" : "two"}"><button data-notax="1" aria-pressed="${!top && F.noTax}">💼 Зарплата</button><button data-notax="0" aria-pressed="${!top && !F.noTax}">💵 Комиссия</button>${canTop() ? `<button data-top="1" aria-pressed="${top}">🎯 В фонд</button>` : ""}</div>`;
+}
 function openAdd(mode, fund) {
   F.mode = mode || F.mode; if (fund) { F.fund = fund; F.from = fund; }
   const d = S.data;
@@ -417,8 +413,13 @@ function openAdd(mode, fund) {
     body = `<span class="label">Из какого фонда</span><div class="fgrid">${spendable.map(f =>
       `<button class="fpick" data-pick="${esc(f.name)}" aria-pressed="${F.fund === f.name}"><span class="e">${f.icon}</span><span><b>${esc(f.name)}</b><small>${money(f.balance)} · ${esc(f.size)}</small></span></button>`).join("")}</div>
       <input class="input" id="fComment" maxlength="200" placeholder="Комментарий: Publix, кружок, бензин…">`;
+  } else if (F.mode === "inc" && F.top && canTop()) {
+    body = `${incSeg()}<p class="hint">Вся сумма пойдёт в выбранный фонд — без налога и без разбивки.</p>
+      <span class="label">В какой фонд</span><div class="fgrid">${spendable.map(f =>
+      `<button class="fpick" data-pick="${esc(f.name)}" aria-pressed="${F.fund === f.name}"><span class="e">${f.icon}</span><span><b>${esc(f.name)}</b><small>${money(f.balance)} · ${esc(f.size)}</small></span></button>`).join("")}</div>
+      <input class="input" id="fComment" maxlength="200" placeholder="Комментарий (необязательно)">`;
   } else if (F.mode === "inc") {
-    body = `<div class="seg two"><button data-notax="1" aria-pressed="${F.noTax}">💼 Зарплата</button><button data-notax="0" aria-pressed="${!F.noTax}">💵 Комиссия</button></div>
+    body = `${incSeg()}
       <p class="hint">${F.noTax ? "Налог уже удержан — 10% не снимаю." : "Отложу 10% на налоги."} Остальное разложу по фондам.</p>
       <input class="input" id="fComment" maxlength="200" placeholder="Комментарий: сделка Smith, аванс…">`;
   } else {
@@ -427,7 +428,7 @@ function openAdd(mode, fund) {
       <span class="label">Куда</span><select id="fTo">${opts(F.to || (d.funds.find(f => f.name === "Резерв") || spendable[1]).name)}</select>
       <input class="input" id="fComment" maxlength="200" placeholder="Комментарий (необязательно)">`;
   }
-  openSheet(`<h3>${F.mode === "exp" ? "Новый расход" : F.mode === "inc" ? "Новый доход" : "Перевод между фондами"}</h3>
+  openSheet(`<h3>${F.mode === "exp" ? "Новый расход" : F.mode === "inc" ? (F.top && canTop() ? "Пополнить фонд" : "Новый доход") : "Перевод между фондами"}</h3>
     <div class="seg">${seg("exp", "➖ Расход")}${seg("inc", "➕ Доход")}${seg("tr", "⇄ Перевод")}</div>
     <label class="amount"><span>$</span><input id="fAmount" inputmode="decimal" placeholder="0" autocomplete="off"></label>
     ${body}<div class="err" id="fErr"></div>
@@ -445,6 +446,9 @@ function save() {
   if (F.mode === "exp") {
     if (!F.fund) { err.textContent = "Выберите фонд"; return; }
     p = call("apiAdd", { type: "exp", amount, fund: F.fund, comment });
+  } else if (F.mode === "inc" && F.top && canTop()) {
+    if (!F.fund) { err.textContent = "Выберите фонд"; return; }
+    p = call("apiAdd", { type: "top", amount, fund: F.fund, comment });
   } else if (F.mode === "inc") {
     p = call("apiAdd", { type: "inc", amount, noTax: F.noTax, comment });
   } else {
@@ -468,15 +472,16 @@ function openFund(name) {
       <div class="r"><span>Потрачено за месяц</span><b>${money(f.spentMonth)}</b></div></div></section>
     ${hist.length ? `<span class="label">Последние записи</span><div class="list">${hist.map(rowItem).join("")}</div>` : ""}
     ${f.kind !== "tax" ? `<button class="cta" data-add="exp" data-fundpre="${esc(f.name)}">➖ Расход из этого фонда</button>` : ""}
+    ${f.kind !== "tax" && canTop() ? `<button class="cta ghost" data-add="top" data-fundpre="${esc(f.name)}">➕ Пополнить этот фонд</button>` : ""}
     <button class="cta ghost" data-add="tr" data-fundpre="${esc(f.name)}">⇄ Перевести в другой фонд</button>`);
 }
 
 function openOp(op) {
   const h = S.data.history.find(x => x.op === op); if (!h) return;
   const ic = histIcon(h);
-  const what = h.type === "inc" ? `Доход ${money(h.amount)}` : h.type === "exp" ? `Расход ${money(h.amount)} · ${h.fund}` : `Перевод ${money(h.amount)}: ${h.from} → ${h.to}`;
+  const what = h.type === "inc" && h.top ? `Пополнение ${money(h.amount)} · ${h.fund}` : h.type === "inc" ? `Доход ${money(h.amount)}` : h.type === "exp" ? `Расход ${money(h.amount)} · ${h.fund}` : `Перевод ${money(h.amount)}: ${h.from} → ${h.to}`;
   openSheet(`<div style="display:flex;gap:12px;align-items:center"><span class="ic" style="background:${soft(ic.c, .14)};width:52px;height:52px;font-size:24px">${ic.e}</span>
-      <div><h3>${esc(what)}</h3><span class="sub">${esc([String(h.comment || "").replace(/^(зп|комиссия)\s*/i, ""), h.who, h.when].filter(Boolean).join(" · "))}</span></div></div>
+      <div><h3>${esc(what)}</h3><span class="sub">${esc([cleanC(h.comment), h.who, h.when].filter(Boolean).join(" · "))}</span></div></div>
     ${h.mine ? `<button class="cta" id="undoBtn" data-undo="${esc(h.op)}">↩️ Отменить эту запись</button>`
              : `<p class="hint" style="margin:0">Отменить запись может только тот, кто её сделал (${esc(h.who)}).</p>`}
     <button class="cta ghost" data-close="1">Закрыть</button>`);
@@ -499,11 +504,14 @@ document.addEventListener("click", e => {
   if (t.dataset.add) {
     const pre = t.dataset.fundpre;
     if (t.dataset.add === "tr") { F.from = pre || null; F.to = null; }
+    if (t.dataset.add === "top") { F.top = true; return openAdd("inc", pre); }
+    if (t.dataset.add === "inc") F.top = false;
     return openAdd(t.dataset.add === "1" ? (F.mode || "exp") : t.dataset.add, t.dataset.add === "exp" ? pre : null);
   }
   if (t.dataset.mode) { const a = $("#fAmount").value; openAdd(t.dataset.mode); $("#fAmount").value = a; return; }
   if (t.dataset.pick) { F.fund = t.dataset.pick; document.querySelectorAll(".fpick").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.pick === F.fund))); return; }
-  if (t.dataset.notax) { const a = $("#fAmount").value; F.noTax = t.dataset.notax === "1"; openAdd("inc"); $("#fAmount").value = a; return; }
+  if (t.dataset.notax) { const a = $("#fAmount").value; F.noTax = t.dataset.notax === "1"; F.top = false; openAdd("inc"); $("#fAmount").value = a; return; }
+  if (t.dataset.top) { const a = $("#fAmount").value; F.top = true; openAdd("inc"); $("#fAmount").value = a; return; }
   if (t.id === "fSave") return save();
   if (t.dataset.fund) return openFund(t.dataset.fund);
   if (t.dataset.op) return openOp(t.dataset.op);

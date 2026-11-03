@@ -425,6 +425,22 @@ function income_(chatId, user, amount, comment) {
   send_(chatId, lines.join('\n'), undoButton_(op));
 }
 
+/** Пополнение одного фонда: вся сумма в выбранный фонд, без налога и разбивки. */
+function topup_(chatId, user, amount, envName, comment) {
+  const env = readConfig_();
+  const e = findEnv_(env, envName);
+  const now = new Date();
+  const op = opId_(user);
+  const who = whoName_(user);
+  const c = ('пополнение ' + (comment || '')).trim();
+  withLock_(function () {
+    appendRows_([[now, who, 'доход', '—', amount, c, op], [now, who, 'распределение', e.name, amount, c, op]]);
+  });
+  const bal = balances_(logRows_())[e.name] || 0;
+  send_(chatId, '✅ <b>Пополнение +' + fmt_(amount) + '</b>\n' + label_(e) + ' · ' + esc_(who) +
+    (comment ? '\n' + esc_(comment) : '') + '\n\nВ фонде теперь: <b>' + fmt_(bal) + '</b>', undoButton_(op));
+}
+
 /**
  * Делит доход: налог % → обязательные (до месячной суммы) → фонды %.
  * covered — сколько уже отложено на каждую обязательную статью в этом месяце.
@@ -993,6 +1009,8 @@ function appData_(user) {
     if (inc) {
       h.type = 'inc'; h.amount = inc.amount; h.comment = inc.comment;
       h.noTax = !rs.some(function (r) { return r.type === 'распределение' && env.some(function (e) { return e.kind === 'tax' && e.name === r.env; }); });
+      const al = rs.filter(function (r) { return r.type === 'распределение'; });
+      if (/^пополнение(\s|$)/.test(String(inc.comment || '')) && al.length === 1) { h.top = true; h.fund = al[0].env; }
     } else if (ex) {
       h.type = 'exp'; h.amount = -ex.amount; h.fund = ex.env; h.comment = ex.comment;
     } else if (tr.length) {
@@ -1011,6 +1029,7 @@ function appData_(user) {
     total: total, income: income, spent: spent, tax: tax,
     fixedTarget: fixedTarget, fixedGot: fixedGot,
     funds: funds, history: history,
+    caps: ['top'],
   };
 }
 
@@ -1024,7 +1043,11 @@ function apiAdd(auth, d) {
   const amount = r2_(Number(String(d && d.amount).replace(',', '.')));
   if (!(amount > 0) || amount > 10000000) throw new Error('Проверьте сумму');
   const comment = String(d.comment || '').replace(/\s+/g, ' ').trim().slice(0, 200);
-  if (d.type === 'inc') {
+  if (d.type === 'top') {
+    const e = findEnv_(readConfig_(), d.fund);
+    if (!e || e.kind === 'tax') throw new Error('Выберите фонд');
+    topup_(user.id, user, amount, e.name, comment);
+  } else if (d.type === 'inc') {
     income_(user.id, user, amount, ((d.noTax ? 'зп' : 'комиссия') + ' ' + comment).trim());
   } else {
     if (!findEnv_(readConfig_(), d.fund)) throw new Error('Выберите фонд');

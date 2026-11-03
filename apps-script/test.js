@@ -157,4 +157,22 @@ const n = sheets['Журнал'].data.length;
 ctx.doPost({ parameter: {}, postData: { contents: JSON.stringify({ update_id: 9e6, message: { chat: { id: 111 }, from: A, text: '50 еда' } }) } });
 assert.strictEqual(sheets['Журнал'].data.length, n);
 
+// Пополнение одного фонда: без налога, без разбивки, отменяется
+{
+  const before = ctx.apiData({ u: '111', k: key }).funds.find(f => f.name === 'Дети').balance;
+  const tax0 = ctx.apiData({ u: '111', k: key }).tax;
+  sent.length = 0;
+  let t = ctx.apiAdd({ u: '111', k: key }, { type: 'top', amount: '200', fund: 'Дети', comment: 'из копилки' });
+  assert.strictEqual(JSON.stringify(t.caps), '["top"]');
+  assert.strictEqual(t.funds.find(f => f.name === 'Дети').balance, before + 200);
+  assert.strictEqual(t.tax, tax0);
+  const th = t.history[0];
+  assert.strictEqual(th.type, 'inc'); assert.strictEqual(th.top, true); assert.strictEqual(th.fund, 'Дети'); assert.strictEqual(th.amount, 200);
+  assert(sent.some(x => x.m === 'sendMessage' && /Пополнение \+\$200/.test(x.p.text)));
+  assert.throws(() => ctx.apiAdd({ u: '111', k: key }, { type: 'top', amount: 5, fund: 'Нет такого' }), /Выберите фонд/);
+  t = ctx.apiUndo({ u: '111', k: key }, th.op);
+  assert.strictEqual(t.funds.find(f => f.name === 'Дети').balance, before);
+  console.log('✓ пополнение фонда');
+}
+
 console.log('ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ');
