@@ -93,6 +93,19 @@ h2 { margin: 2px 0 0; font-size: 19px; font-weight: 700; color: var(--navy); lin
 .hi small { color: var(--muted); font-size: 12px; font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hi .sum { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .plus { color: var(--plus); } .minus { color: var(--minus); }
+/* Компактная выписка: каждый платёж в одну строку */
+.list { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.row { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%;
+  padding: 10px 12px; border: 0; border-top: 1px solid var(--border); background: transparent; text-align: left; cursor: pointer; font-size: 14px; }
+.row:first-child { border-top: 0; }
+.row:active { background: var(--chip); }
+.row .d { color: var(--muted); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.row .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); font-weight: 500; }
+.row .t small { color: var(--muted); font-size: 12px; font-weight: 500; margin-left: 6px; }
+.row .s { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.total { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--muted); font-weight: 600; padding: 0 2px; }
+.total b { color: var(--fg); font-variant-numeric: tabular-nums; }
+.panel .list { border: 0; border-radius: 0; margin: -4px -16px -14px; border-top: 1px solid var(--border); }
 .empty { text-align: center; color: var(--muted); padding: 24px 8px; font-weight: 600; }
 
 /* Отчёт */
@@ -248,7 +261,7 @@ function progRow(f) {
 function renderHome() {
   const d = S.data;
   const fixed = d.funds.filter(f => f.kind === "fixed");
-  const last = d.history.slice(0, 4);
+  const last = d.history.slice(0, 5);
   $("#pane-home").innerHTML = `
     <section class="hero">
       <span class="label">Всего во всех фондах</span>
@@ -267,7 +280,7 @@ function renderHome() {
     </section>
     <section class="panel">
       <div class="panel-h"><span class="label">Последние записи</span><button class="link" data-goto="hist">Вся история →</button></div>
-      ${last.length ? last.map(histItem).join("") : `<div class="empty">Пока нет записей.<br>Нажмите «+», чтобы добавить.</div>`}
+      ${last.length ? `<div class="list">${last.map(rowItem).join("")}</div>` : `<div class="empty">Пока нет записей.<br>Нажмите «+», чтобы добавить.</div>`}
     </section>`;
 }
 
@@ -306,19 +319,35 @@ function histItem(h) {
     <span><b>${esc(title)}</b><small>${esc([sub, h.who, h.when].filter(Boolean).join(" · "))}</small></span>${sum}</button>`;
 }
 
+function rowItem(h) {
+  let title, sub, sum;
+  if (h.type === "inc") { title = String(h.comment || "").replace(/^(зп|комиссия)\s*/i, "") || (h.noTax ? "Зарплата" : "Доход"); sub = h.noTax ? "зарплата" : "доход"; sum = `<span class="s plus">${money(h.amount, true)}</span>`; }
+  else if (h.type === "exp") { title = h.comment || h.fund; sub = h.comment ? h.fund : ""; sum = `<span class="s minus">${money(-h.amount)}</span>`; }
+  else if (h.type === "tr") { title = `${h.from} → ${h.to}`; sub = "перевод"; sum = `<span class="s">${money(h.amount)}</span>`; }
+  else { title = "Запись"; sub = ""; sum = ""; }
+  return `<button class="row" data-op="${esc(h.op)}"><span class="d">${esc(String(h.when || "").slice(0, 5))}</span>
+    <span class="t">${esc(title)}${sub ? `<small>${esc(sub)}</small>` : ""}</span>${sum}</button>`;
+}
+
 function renderHist() {
   const d = S.data;
   const f = S.filter;
   const list = d.history.filter(h => f === "all" || (f === "mine" && h.mine) || h.type === f);
   const chip = (v, t) => `<button class="chip" data-filter="${v}" aria-pressed="${f === v}">${t}</button>`;
+  const out = list.filter(h => h.type === "exp").reduce((a, h) => a + h.amount, 0);
+  const inc = list.filter(h => h.type === "inc").reduce((a, h) => a + h.amount, 0);
   let html = `<h2>История</h2><div class="chips">${chip("all", "Все")}${chip("mine", "Мои")}${chip("exp", "Расходы")}${chip("inc", "Доходы")}${chip("tr", "Переводы")}</div>`;
   if (!list.length) html += `<div class="empty">Здесь пока пусто</div>`;
-  let day = "";
-  list.forEach(h => {
-    if (h.day !== day) { day = h.day; html += `<div class="day">${dayLabel(h.day)}</div>`; }
-    html += histItem(h);
-  });
+  else {
+    html += `<div class="total"><span>${list.length} ${plural(list.length, "запись", "записи", "записей")}</span>
+      <span>${inc ? `доходы <b class="plus">${money(inc)}</b> · ` : ""}${out ? `расходы <b class="minus">${money(out)}</b>` : ""}</span></div>`;
+    html += `<div class="list">${list.map(rowItem).join("")}</div>`;
+  }
   $("#pane-hist").innerHTML = html;
+}
+function plural(n, one, few, many) {
+  const a = n % 10, b = n % 100;
+  return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many;
 }
 function dayLabel(iso) {
   const [y, m, dd] = iso.split("-").map(Number);
@@ -437,7 +466,7 @@ function openFund(name) {
       <div class="r"><span>Остаток</span><b class="${f.balance < 0 ? "minus" : ""}" style="font-size:18px">${money(f.balance)}</b></div>
       <div class="r"><span>Пришло за месяц</span><b>${money(f.allocMonth)}</b></div>
       <div class="r"><span>Потрачено за месяц</span><b>${money(f.spentMonth)}</b></div></div></section>
-    ${hist.length ? `<span class="label">Последние записи</span>${hist.map(histItem).join("")}` : ""}
+    ${hist.length ? `<span class="label">Последние записи</span><div class="list">${hist.map(rowItem).join("")}</div>` : ""}
     ${f.kind !== "tax" ? `<button class="cta" data-add="exp" data-fundpre="${esc(f.name)}">➖ Расход из этого фонда</button>` : ""}
     <button class="cta ghost" data-add="tr" data-fundpre="${esc(f.name)}">⇄ Перевести в другой фонд</button>`);
 }
